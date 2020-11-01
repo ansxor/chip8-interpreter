@@ -1,6 +1,8 @@
 mod chip8;
 
 fn main() {
-    let prg: chip8::Program;
+    let mut prg: chip8::Program = Default::default();
+    prg.run_cycle();
+
     println!("Hello, world!");
 }
