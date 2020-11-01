@@ -22,7 +22,7 @@ pub struct Program {
 
 impl Program {
     fn get_ins(&mut self, pos: usize) -> u16 {
-        return (self.ram[pos * 2] as u16) << 8 + (self.ram[pos * 2 + 1]) as u16;
+        return ((self.ram[pos * 2] as u16) << 8) + ((self.ram[pos * 2 + 1]) as u16);
     }
 
     fn get_cur_ins(&mut self) -> u16 {
@@ -46,7 +46,7 @@ impl Program {
         return self.get_nibble(self.stack[self.stack_position], nibble);
     }
 
-    pub fn set_ins(&mut self, pos: usize, val: usize) {
+    pub fn set_ins(&mut self, pos: usize, val: u16) {
         self.ram[pos * 2] = ((val >> 8) & 0xFF) as u8;
         self.ram[pos * 2 + 1] = ((val) & 0xFF) as u8;
     }
@@ -109,7 +109,7 @@ impl Program {
                 let varval = self.vars[var];
                 let value = self.vars[self.get_cur_nibble(2) as usize];
                 match self.get_cur_nibble(3) {
-                    1 =>  self.vars[var] |= value,
+                    1 => self.vars[var] |= value,
                     2 => self.vars[var] &= value,
                     3 => self.vars[var] ^= value,
                     4 => {
@@ -142,7 +142,10 @@ impl Program {
             // sets I to nnn Annn
             0xA => self.i = self.get_cur_nibbles(0, 3),
             // jump to nnn + V0 Bnnn
-            0xB => self.stack[self.stack_position] = (self.vars[0] as usize) + (self.get_cur_nibbles(0, 3) as usize),
+            0xB => {
+                self.stack[self.stack_position] =
+                    (self.vars[0] as usize) + (self.get_cur_nibbles(0, 3) as usize)
+            }
             // sets Vx to random byte AND kk Cxkk
             0xC => {
                 self.vars[self.get_cur_nibble(1) as usize] =
@@ -164,8 +167,8 @@ impl Program {
 
                 for i in 0..h {
                     for j in 0..w {
-                        self.vram[((y + i) * DISPLAY_X as u8 + x + j) as usize] ^= 
-                        (self.ram[(self.i as u8 + i) as usize] >> (7 - j) & 1) == 1;
+                        self.vram[((y + i) * DISPLAY_X as u8 + x + j) as usize] ^=
+                            (self.ram[(self.i as u8 + i) as usize] >> (7 - j) & 1) == 1;
                     }
                 }
             }
@@ -234,7 +237,7 @@ impl Default for Program {
             vram: [false; VRAM_SIZE],
             stack: [0; 0x10],
             stack_position: 0,
-            vars: [0; 0x10]
+            vars: [0; 0x10],
         }
     }
 }
