@@ -1,20 +1,25 @@
 extern crate rand;
 use rand::Rng;
 
+// use std::fs::File;
+// use std::io::BufReader;
+// use std::io::prelude::*;
+
 pub const DISPLAY_X: usize = 64;
 pub const DISPLAY_Y: usize = 32;
-pub const VRAM_SIZE: usize = DISPLAY_X * DISPLAY_Y;
+pub const VRAM_SIZE: usize = DISPLAY_Y;
 pub const RAM_SIZE: usize = (0xFFF - 0x200) / 2;
-/*const SPRITE_COUNT: usize = 0x10;
-const SPRITE_SIZE: usize = 5;
-const SRAM_SIZE: usize = SPRITE_COUNT * SPRITE_SIZE; */
+pub const PIXEL_SIZE: usize = 16;
+pub const PIXEL_PAD_SIZE: usize = PIXEL_SIZE / 2;
+pub const WINDOW_X_SIZE: usize = DISPLAY_X * PIXEL_SIZE + PIXEL_PAD_SIZE * 2;
+pub const WINDOW_Y_SIZE: usize = DISPLAY_Y * PIXEL_SIZE + PIXEL_PAD_SIZE * 2;
 
 pub struct Program {
-    vram: [bool; VRAM_SIZE],
+    vram: [u64; VRAM_SIZE],
     ram: [u8; RAM_SIZE],
     // sram: [u8; SRAM_SIZE],
-    stack: [usize; 0x10],
-    stack_position: usize,
+    pub stack: [usize; 0x10],
+    pub stack_position: usize,
     vars: [u8; 0x10],
     i: u16,
     keyboard: [bool; 0x10],
@@ -22,7 +27,7 @@ pub struct Program {
 
 impl Program {
     fn get_ins(&mut self, pos: usize) -> u16 {
-        return ((self.ram[pos * 2] as u16) << 8) + ((self.ram[pos * 2 + 1]) as u16);
+        return ((self.ram[pos] as u16) << 8) + ((self.ram[pos + 1]) as u16);
     }
 
     fn get_cur_ins(&mut self) -> u16 {
@@ -39,7 +44,7 @@ impl Program {
     }
 
     fn get_nibble(&self, pos: usize, nibble: usize) -> u8 {
-        return (self.ram[pos * 2 + nibble / 2] as u8) >> (4 * ((nibble + 1) % 2)) & 0xF;
+        return (self.ram[pos + nibble / 2] as u8) >> (4 * ((nibble + 1) % 2)) & 0xF;
     }
 
     fn get_cur_nibble(&self, nibble: usize) -> u8 {
@@ -47,21 +52,23 @@ impl Program {
     }
 
     pub fn set_ins(&mut self, pos: usize, val: u16) {
-        self.ram[pos * 2] = ((val >> 8) & 0xFF) as u8;
-        self.ram[pos * 2 + 1] = ((val) & 0xFF) as u8;
+        self.ram[pos] = ((val >> 8) & 0xFF) as u8;
+        self.ram[pos + 1] = ((val) & 0xFF) as u8;
     }
 
     pub fn run_cycle(&mut self) {
+        if self.stack[self.stack_position] >= (RAM_SIZE - 1) {
+            return;
+        }
         let ins: u16 = self.get_cur_ins();
         let ins_mask: u8 = self.get_cur_nibble(0);
-        // let mut curpos = &mut self.stack[self.stackPosition];
 
         match ins_mask {
             0x0 => {
                 match ins {
                     // Clear VRAM
                     0xE0 => {
-                        self.vram = [false; VRAM_SIZE];
+                        self.vram = [0; 32];
                     }
                     // Return from subroutine
                     0xEE => {
@@ -155,21 +162,15 @@ impl Program {
             0xD => {
                 let x: u8 = self.vars[self.get_cur_nibble(1) as usize] % DISPLAY_X as u8;
                 let y: u8 = self.vars[self.get_cur_nibble(2) as usize] % DISPLAY_Y as u8;
-                let mut h: u8 = self.vars[self.get_cur_nibble(3) as usize];
-                let mut w: u8 = 8;
+                let mut h: u8 = self.get_cur_nibble(3);
 
                 if (y + h) > DISPLAY_Y as u8 {
                     h = DISPLAY_Y as u8 - y;
                 }
-                if (x + w) > DISPLAY_X as u8 {
-                    w = DISPLAY_X as u8 - x;
-                }
 
                 for i in 0..h {
-                    for j in 0..w {
-                        self.vram[((y + i) * DISPLAY_X as u8 + x + j) as usize] ^=
-                            (self.ram[(self.i as u8 + i) as usize] >> (7 - j) & 1) == 1;
-                    }
+                    let z: u64 = (self.ram[(self.i as u8 + i) as usize] as u64) << (56 - x);
+                    self.vram[(i + y) as usize] ^= z;
                 }
             }
             0xE => {
@@ -226,6 +227,30 @@ impl Program {
 
         self.stack[self.stack_position] = self.stack[self.stack_position] + 2;
     }
+
+    pub fn draw_output(&self, canvas: &mut sdl2::render::Canvas<sdl2::video::Window>) {
+        canvas.set_draw_color(sdl2::pixels::Color::RGB(0, 0, 0));
+        canvas.clear();
+        canvas.set_draw_color(sdl2::pixels::Color::RGB(255, 255, 255));
+        for i in 0..DISPLAY_Y {
+            for j in 0..DISPLAY_X {
+                let rect = sdl2::rect::Rect::new(
+                    (j * PIXEL_SIZE + PIXEL_PAD_SIZE) as i32,
+                    (i as usize * PIXEL_SIZE + PIXEL_PAD_SIZE) as i32,
+                    PIXEL_SIZE as u32,
+                    PIXEL_SIZE as u32,
+                );
+                if self.vram[i] & (1 << (DISPLAY_X - j - 1)) != 0 {
+                    let _drawrect = canvas.fill_rect(rect).unwrap();
+                }
+            }
+        }
+    }
+
+    // pub fn load_file(&mut self, filename: &str) {
+    //     let file = File::open(filename).unwrap();
+    //     let mut buf_reader = BufReader::new(file);
+    // }
 }
 
 impl Default for Program {
@@ -234,7 +259,7 @@ impl Default for Program {
             i: 0,
             keyboard: [false; 0x10],
             ram: [0; RAM_SIZE],
-            vram: [false; VRAM_SIZE],
+            vram: [0; VRAM_SIZE],
             stack: [0; 0x10],
             stack_position: 0,
             vars: [0; 0x10],
